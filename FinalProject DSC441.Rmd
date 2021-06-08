@@ -1,0 +1,285 @@
+---
+title: "Final_Project_DSC441"
+author: "John Bolgert"
+date: "5/23/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+airline_df <- read.csv("~/Desktop/DePaul/airline_passenger_satisfaction.csv",stringsAsFactors = FALSE)
+airline_df <- airline_df[,-c(1)]
+
+#import the data 
+#remove row number column 
+```
+
+```{r}
+#import libraries needed 
+library(tidyverse)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(MLmetrics)
+library(ggplot2)
+library(ROCR)
+library(RColorBrewer)
+library(outliers)
+```
+```{r}
+#check for null values 
+sapply(airline_df, function(x) sum(is.na(x))) 
+```
+```{r}
+#filter to null values found to investigate entries
+ filter(airline_df, is.na(arrival_delay_in_minutes)) 
+```
+
+```{r}
+#replace null values found with the median 
+airline_df$arrival_delay_in_minutes[is.na(airline_df$arrival_delay_in_minutes)] <- median(airline_df$arrival_delay_in_minutes,na.rm = TRUE) 
+```
+
+```{r}
+#replace zeros for likert fields with median value
+#domain knowlege shows that zeros were used for null values 
+airline_df$inflight_wifi_service[airline_df$inflight_wifi_service =="0"] <- median(airline_df$inflight_wifi_service)
+
+airline_df$departure_arrival_time_convenient[airline_df$departure_arrival_time_convenient == "0"]<- median(airline_df$departure_arrival_time_convenient) 
+
+airline_df$ease_of_online_booking[airline_df$ease_of_online_booking =="0"] <- median(airline_df$ease_of_online_booking)
+
+airline_df$gate_location[airline_df$gate_location == "0"] <- median(airline_df$gate_location)
+
+airline_df$food_and_drink[airline_df$food_and_drink == "0"]<- median(airline_df$food_and_drink)
+
+airline_df$online_boarding[airline_df$online_boarding == "0"] <- median(airline_df$online_boarding)
+
+airline_df$seat_comfort[airline_df$seat_comfort=="0"]<- median(airline_df$seat_comfort)
+
+airline_df$inflight_entertainment[airline_df$inflight_entertainment == "0"] <- median(airline_df$inflight_entertainment)
+
+airline_df$onboard_service[airline_df$onboard_service == "0"] <-median(airline_df$onboard_service)
+
+airline_df$leg_room_service[airline_df$leg_room_service =="0"] <- median(airline_df$leg_room_service)
+
+airline_df$baggage_handling[airline_df$baggage_handling =="0"]<-median(airline_df$baggage_handling)
+
+airline_df$checkin_service[airline_df$checkin_service == "0"]<- median(airline_df$checkin_service)
+
+
+airline_df$inflight_service[airline_df$inflight_service =="0"] <- median(airline_df$inflight_service)
+
+
+airline_df$cleanliness[airline_df$cleanliness == "0"]<- median(airline_df$cleanliness)
+
+
+
+
+```
+
+
+```{r}
+#double check to make sure null values were replaced 
+sapply(airline_df, function(x) sum(is.na(x))) 
+```
+
+```{r}
+#set the seed 
+set.seed(123)
+```
+
+```{r}
+#overall summary of the data 
+summary(airline_df) 
+```
+
+```{r}
+#create z-score standardization of arrival_delay_in_minutes
+delay_z_score <- scores(airline_df$arrival_delay_in_minutes, type = "z")
+#view entries where standard deviation is greater than 4 
+airline_df[which(abs(delay_z_score)>4),]
+
+
+```
+
+```{r}
+#create z-score standardization of departure_delay_in_minutes
+departure_delay_z_score <- scores(airline_df$departure_delay_in_minutes, type = "z")
+#view entries where standard deviation is greater than 4 
+airline_df[which(abs(departure_delay_z_score)>4),]
+```
+
+
+```{r}
+#create color palette 
+coul <- brewer.pal(5,"Set2")
+#count instances of satisfaction for entries for delayed arrival that are greater than 4 standard deviations 
+counts <- table(airline_df$satisfaction[which(abs(delay_z_score)>4)])
+#create boxplot of this subset of satisfaction field 
+barplot(counts, col=coul, xlab = "satisfaction", ylab = "# of instances",main = "Distribution of satisfaction for arrival delay std > 4")
+counts
+             
+```
+```{r}
+#create color palette 
+coul <- brewer.pal(5,"Set2")
+#count instances of satisfaction for entries for delayed departure that are greater than 4 standard deviations 
+counts <- table(airline_df$satisfaction[which(abs(departure_delay_z_score)>4)])
+#create boxplot of this subset of satisfaction field 
+barplot(counts, col=coul, xlab = "satisfaction", ylab = "# of instances", main = "Distribution of satisfaction for departure delay std > 4")
+
+counts
+            
+```
+
+```{r}
+#load more libraries 
+library(ggplot2)
+library(GGally)
+```
+
+
+```{r}
+#create color palette 
+coul <- brewer.pal(5,"Set2")
+#count number of instances of satisfaction field 
+counts <- table(airline_df$satisfaction)
+#create boxplot of counts 
+barplot(counts, col=coul, xlab = "satisfaction", ylab = "# of instances",main = "Distribution of satisfaction")
+counts
+                
+```
+
+```{r}
+#transform categorical data into factor form, currently stored as char
+airline_df$satisfaction = as.factor(airline_df$satisfaction)
+airline_df$Gender = as.factor(airline_df$Gender)
+airline_df$customer_type = as.factor(airline_df$customer_type)
+airline_df$type_of_travel = as.factor(airline_df$type_of_travel)
+
+```
+
+```{r}
+#set data partition to 70-30 
+inTrain <- createDataPartition(y = airline_df$satisfaction, p = 0.7, list =  FALSE)
+#create training subset
+training <- airline_df[ inTrain,]
+#create testing subset
+testing <- airline_df[-inTrain,]
+```
+
+```{r}
+#create decision tree with cp value set to zero 
+tree_original <- rpart(satisfaction ~ ., data = training, control = rpart.control(cp=0) )
+#summary(tree)
+```
+```{r}
+#print first tree tested 
+prp(tree_original,under=TRUE,type=3,varlen=0,faclen=0,extra = TRUE)
+```
+
+```{r}
+#print plot to search for optimal cp value for decision tree 
+plotcp(tree_original)
+```
+
+```{r}
+#predict label data with testing dataset 
+tree.predict = predict(tree_original, testing, type="class")
+#produce performance measurements 
+confusionMatrix(tree.predict, testing$satisfaction)
+```
+
+
+
+
+```{r}
+#build decision tree with no hyperparameters 
+tree <- rpart(satisfaction ~ ., data = training)
+#summary(tree)
+```
+```{r}
+#print decision tree 
+prp(tree,under=TRUE,type=3,varlen=0,faclen=0,extra = TRUE)
+```
+```{r}
+#print ranked variables of importance 
+tree$variable.importance
+```
+
+```{r}
+#create hyperparameters combinations to be tested in gridsearch
+gs <- list(minsplit = c(1,2,3,4,5,6,7,8,9,10), 
+           maxdepth = c(1,2,3,4,5,6,7,8)) %>% 
+      cross_df()
+gs
+```
+
+
+```{r}
+#function to create decision trees with inputted control variables
+mod <- function(...) {
+  rpart(satisfaction ~ ., data = training, control = rpart.control(...))
+}
+```
+
+```{r}
+#passes in grid of hyperparameter values into mod fucnction 
+gs <- gs %>% mutate(fit = pmap(gs, mod))
+
+gs
+```
+```{r}
+#create function that will compute accuracy of each decision tree 
+compute_accuracy <- function(fit, test_features, test_labels) { #input of model, test features, test labels 
+  predicted <- predict(fit, test_features, type = "class") #predict labels with test data
+  mean(predicted == test_labels) #create mean score for how many predicted values match test labels
+}
+```
+
+```{r}
+test_features <- testing %>% select(-satisfaction) # set test_features
+test_labels <- testing$satisfaction #set values to test_labels 
+
+gs <- gs %>% 
+  mutate(test_accuracy = map_dbl(fit, compute_accuracy, 
+                                 test_features, test_labels)) #input values to compute_accuracy, use map_dbl to compute accuracy for entire grid
+
+gs 
+```
+
+```{r}
+gs <- gs %>% arrange(desc(test_accuracy), desc(minsplit), maxdepth) #arrange hyperparameter values in decending order of accuracy score
+gs 
+```
+
+```{r}
+prp(gs$fit[[1]]) #print top performing decision tree 
+```
+
+```{r}
+tree_final <- rpart(satisfaction ~ ., data = training, minsplit = 10, maxdepth = 3) #create final decision tree based on hyperparameter compinations descovered using grid search
+
+```
+
+```{r}
+prp(tree_final,under=TRUE,type=3,varlen=0,faclen=0,extra = TRUE) #print final tree 
+```
+```{r}
+tree_final$variable.importance #print ranked variable of importance of final model
+```
+```{r}
+tree.pruned = predict(tree, testing, type="class") #predict labels using testing data 
+confusionMatrix(tree.pruned, testing$satisfaction) #print performance scores of model 
+```
+
+```{r}
+tree.pruned_final = predict(tree_final, testing, type="class") #predict labels of final model using testing data 
+confusionMatrix(tree.pruned_final, testing$satisfaction) #print performance scores of model 
+```
+
+
+
+
